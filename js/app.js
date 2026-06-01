@@ -133,9 +133,12 @@
     renderCard();
   }
 
+  function isCramMode() { return $("studyMode").value === "cram"; }
+
   function showReveal() {
     $("revealRow").classList.remove("hidden");
     $("gradesRow").classList.add("hidden");
+    $("cramRow").classList.add("hidden");
   }
 
   function renderCard() {
@@ -179,13 +182,17 @@
     if (deck.length === 0 || flipped) return;
     flipped = true;
     $("flashcard").classList.add("flipped");
-    const p = previews(deck[idx].radical);
-    $("intAgain").textContent = p.again;
-    $("intHard").textContent = p.hard;
-    $("intGood").textContent = p.good;
-    $("intEasy").textContent = p.easy;
     $("revealRow").classList.add("hidden");
-    $("gradesRow").classList.remove("hidden");
+    if (isCramMode()) {
+      $("cramRow").classList.remove("hidden");
+    } else {
+      const p = previews(deck[idx].radical);
+      $("intAgain").textContent = p.again;
+      $("intHard").textContent = p.hard;
+      $("intGood").textContent = p.good;
+      $("intEasy").textContent = p.easy;
+      $("gradesRow").classList.remove("hidden");
+    }
   }
 
   function grade(key) {
@@ -204,6 +211,7 @@
     $("flashcard").classList.add("hidden");
     $("revealRow").classList.add("hidden");
     $("gradesRow").classList.add("hidden");
+    $("cramRow").classList.add("hidden");
     updateMeta();
     const mode = $("studyMode").value;
     if (empty) {
@@ -224,11 +232,23 @@
 
   $("flashcard").addEventListener("click", (ev) => {
     if (ev.target.closest("#starBtn") || ev.target.closest("#speakBtn")) return;
-    reveal();
+    if (!flipped) {
+      reveal();
+    } else {
+      $("flashcard").classList.remove("flipped");
+      flipped = false;
+    }
   });
   $("revealBtn").addEventListener("click", reveal);
   document.querySelectorAll(".grade").forEach((b) =>
     b.addEventListener("click", () => grade(b.dataset.grade)));
+  $("cramPrev").addEventListener("click", () => {
+    if (idx > 0) { idx--; renderCard(); }
+  });
+  $("cramNext").addEventListener("click", () => {
+    if (idx < deck.length - 1) { idx++; renderCard(); }
+    else finishDeck(false);
+  });
   $("starBtn").addEventListener("click", () => {
     if (deck.length === 0) return;
     const e = rec(deck[idx].radical);
@@ -251,7 +271,12 @@
     if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
     if (deck.length === 0) return;
     if (ev.key === "s" || ev.key === "S") { $("starBtn").click(); return; }
-    if (ev.key === " " || ev.key === "Enter") { ev.preventDefault(); reveal(); return; }
+    if (ev.key === " " || ev.key === "Enter") {
+      ev.preventDefault();
+      if (!flipped) reveal();
+      else { $("flashcard").classList.remove("flipped"); flipped = false; }
+      return;
+    }
     if (!flipped) return;
     const map = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
     if (map[ev.key]) grade(map[ev.key]);

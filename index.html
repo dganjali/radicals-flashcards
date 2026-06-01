@@ -44,6 +44,7 @@
             <option value="due">Due now</option>
             <option value="all">All cards</option>
             <option value="starred">Starred ★</option>
+            <option value="cram">Cram</option>
           </select>
         </div>
         <label class="check"><input type="checkbox" id="shuffleToggle" checked /> Shuffle</label>
@@ -80,6 +81,10 @@
         <button class="grade hard" data-grade="hard"><span class="g-label">Hard</span><span class="g-int" id="intHard">–</span></button>
         <button class="grade good" data-grade="good"><span class="g-label">Good</span><span class="g-int" id="intGood">–</span></button>
         <button class="grade easy" data-grade="easy"><span class="g-label">Easy</span><span class="g-int" id="intEasy">–</span></button>
+      </div>
+      <div class="card-actions hidden" id="cramRow">
+        <button id="cramPrev" class="btn ghost">← Prev</button>
+        <button id="cramNext" class="btn good">Next →</button>
       </div>
 
       <div id="studyDone" class="done-panel hidden">
