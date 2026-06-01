@@ -271,6 +271,16 @@
     if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
     if (deck.length === 0) return;
     if (ev.key === "s" || ev.key === "S") { $("starBtn").click(); return; }
+    if (ev.key === "ArrowRight") {
+      if (!flipped) reveal();
+      else if (isCramMode()) $("cramNext").click();
+      return;
+    }
+    if (ev.key === "ArrowLeft") {
+      if (flipped) { $("flashcard").classList.remove("flipped"); flipped = false; }
+      else if (isCramMode()) $("cramPrev").click();
+      return;
+    }
     if (ev.key === " " || ev.key === "Enter") {
       ev.preventDefault();
       if (!flipped) reveal();
