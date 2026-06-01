@@ -1,24 +1,15 @@
 (function () {
   "use strict";
 
-  const STORE_KEY = "radicals-progress-v1";
+  const STORE_KEY = "radicals-fsrs-v1";
+  // state: { [radical]: { card: <fsrs card>, starred: bool } }
+  let state = load();
 
-  // progress: { [radical]: { status: "known"|"unknown"|null, starred: bool } }
-  let progress = loadProgress();
-
-  function loadProgress() {
-    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
-    catch { return {}; }
-  }
-  function saveProgress() {
-    localStorage.setItem(STORE_KEY, JSON.stringify(progress));
-  }
-  function entry(r) {
-    if (!progress[r]) progress[r] = { status: null, starred: false };
-    return progress[r];
-  }
+  // FSRS handles (populated after dynamic import)
+  let scheduler, Rating, State, createEmptyCard, GRADE;
 
   const $ = (id) => document.getElementById(id);
+  const NOW = () => new Date();
   const shuffle = (arr) => {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -27,6 +18,75 @@
     }
     return a;
   };
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
+    catch { return {}; }
+  }
+  function save() { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+
+  function rec(r) {
+    if (!state[r]) state[r] = { card: null, starred: false };
+    return state[r];
+  }
+  function reviveCard(c) {
+    const d = Object.assign({}, c);
+    d.due = new Date(c.due);
+    if (c.last_review) d.last_review = new Date(c.last_review);
+    return d;
+  }
+  function getCard(r) {
+    const c = rec(r).card;
+    return c ? reviveCard(c) : createEmptyCard(NOW());
+  }
+  function setCard(r, card) { rec(r).card = card; save(); }
+
+  function gradeCard(r, key) {
+    if (!scheduler) return;
+    const sched = scheduler.repeat(getCard(r), NOW());
+    setCard(r, sched[GRADE[key]].card);
+  }
+  function previews(r) {
+    const now = NOW();
+    const sched = scheduler.repeat(getCard(r), now);
+    const fmt = (k) => fmtInterval(new Date(sched[GRADE[k]].card.due).getTime() - now.getTime());
+    return { again: fmt("again"), hard: fmt("hard"), good: fmt("good"), easy: fmt("easy") };
+  }
+  function fmtInterval(ms) {
+    const m = ms / 60000;
+    if (m < 1) return "<1m";
+    if (m < 60) return Math.round(m) + "m";
+    const h = m / 60;
+    if (h < 24) return Math.round(h) + "h";
+    const d = h / 24;
+    if (d < 30) return Math.round(d) + "d";
+    const mo = d / 30;
+    if (mo < 12) return Math.round(mo) + "mo";
+    return Math.round(d / 365) + "y";
+  }
+
+  function isLearned(r) {
+    const s = state[r];
+    return !!(s && s.card && s.card.state === State.Review);
+  }
+  function learnedCount() { return RADICALS.filter((c) => isLearned(c.radical)).length; }
+  function dueRadicals() {
+    const now = Date.now();
+    return RADICALS.filter((c) => getCard(c.radical).due.getTime() <= now);
+  }
+  function dueCount() { return dueRadicals().length; }
+  function nextDueLabel() {
+    const now = Date.now();
+    let min = Infinity;
+    RADICALS.forEach((c) => {
+      const s = state[c.radical];
+      if (s && s.card) {
+        const t = new Date(s.card.due).getTime();
+        if (t > now && t < min) min = t;
+      }
+    });
+    return min === Infinity ? null : fmtInterval(min - now) + " from now";
+  }
 
   /* ---------- Tabs ---------- */
   document.querySelectorAll(".tab").forEach((tab) => {
@@ -55,44 +115,35 @@
   let flipped = false;
 
   function buildDeck() {
-    const filter = $("studyFilter").value;
-    let cards = RADICALS.filter((c) => {
-      const e = progress[c.radical];
-      if (filter === "known") return e && e.status === "known";
-      if (filter === "unknown") return !e || e.status !== "known";
-      if (filter === "starred") return e && e.starred;
-      return true;
-    });
-    if ($("shuffleToggle").checked) cards = shuffle(cards);
+    const mode = $("studyMode").value;
+    let cards;
+    if (mode === "due") {
+      cards = dueRadicals().sort((a, b) => getCard(a.radical).due - getCard(b.radical).due);
+    } else if (mode === "starred") {
+      cards = RADICALS.filter((c) => rec(c.radical).starred);
+      if ($("shuffleToggle").checked) cards = shuffle(cards);
+    } else {
+      cards = RADICALS.slice();
+      if ($("shuffleToggle").checked) cards = shuffle(cards);
+    }
     deck = cards;
     idx = 0;
-    flipped = false;
     $("studyDone").classList.add("hidden");
     $("flashcard").classList.remove("hidden");
-    document.querySelector("#view-study .card-actions").classList.remove("hidden");
     renderCard();
   }
 
-  function renderCard() {
-    const total = deck.length;
-    $("knownCounter").textContent =
-      RADICALS.filter((c) => progress[c.radical]?.status === "known").length + " / " + RADICALS.length + " known";
+  function showReveal() {
+    $("revealRow").classList.remove("hidden");
+    $("gradesRow").classList.add("hidden");
+  }
 
-    if (total === 0) {
-      $("cardFront").textContent = "—";
-      $("cardCounter").textContent = "0 / 0";
-      $("studyProgress").style.width = "0%";
-      $("flashcard").classList.add("hidden");
-      document.querySelector("#view-study .card-actions").classList.add("hidden");
-      const done = $("studyDone");
-      done.classList.remove("hidden");
-      $("doneSummary").textContent = "No cards match this filter.";
-      $("reviewUnknown").classList.add("hidden");
-      return;
-    }
+  function renderCard() {
+    updateMeta();
+    if (deck.length === 0) { finishDeck(true); return; }
 
     const card = deck[idx];
-    const e = progress[card.radical];
+    const e = rec(card.radical);
     const dir = $("studyDir").value;
     const fc = $("flashcard");
     fc.classList.remove("flipped");
@@ -106,92 +157,104 @@
     } else {
       $("cardFront").textContent = card.meaning;
       $("cardFront").style.fontFamily = '"Cormorant Garamond", serif';
-      $("cardFront").style.fontSize = "92px";
+      $("cardFront").style.fontSize = "84px";
       $("speakBtn").classList.add("hidden");
     }
     $("cardPinyin").textContent = card.pinyin;
     $("cardMeaning").textContent = card.meaning;
     $("cardRadical").textContent = card.radical;
-    $("starBtn").textContent = e && e.starred ? "★" : "☆";
+    $("starBtn").textContent = e.starred ? "★" : "☆";
 
-    $("cardCounter").textContent = (idx + 1) + " / " + total;
-    $("studyProgress").style.width = ((idx) / total * 100) + "%";
+    $("cardCounter").textContent = (idx + 1) + " / " + deck.length;
+    $("studyProgress").style.width = (idx / deck.length * 100) + "%";
+    showReveal();
   }
 
-  function flip() {
-    flipped = !flipped;
-    $("flashcard").classList.toggle("flipped", flipped);
+  function updateMeta() {
+    $("dueCounter").textContent =
+      `Due ${dueCount()} · Learned ${learnedCount()} / ${RADICALS.length}`;
+  }
+
+  function reveal() {
+    if (deck.length === 0 || flipped) return;
+    flipped = true;
+    $("flashcard").classList.add("flipped");
+    const p = previews(deck[idx].radical);
+    $("intAgain").textContent = p.again;
+    $("intHard").textContent = p.hard;
+    $("intGood").textContent = p.good;
+    $("intEasy").textContent = p.easy;
+    $("revealRow").classList.add("hidden");
+    $("gradesRow").classList.remove("hidden");
+  }
+
+  function grade(key) {
+    if (!flipped || deck.length === 0) return;
+    gradeCard(deck[idx].radical, key);
+    advance();
   }
 
   function advance() {
-    if (idx < deck.length - 1) {
-      idx++;
-      renderCard();
-    } else {
-      finishDeck();
-    }
+    if (idx < deck.length - 1) { idx++; renderCard(); }
+    else finishDeck(false);
   }
 
-  function finishDeck() {
+  function finishDeck(empty) {
     $("studyProgress").style.width = "100%";
     $("flashcard").classList.add("hidden");
-    document.querySelector("#view-study .card-actions").classList.add("hidden");
-    const known = deck.filter((c) => progress[c.radical]?.status === "known").length;
-    $("doneSummary").textContent =
-      `You reviewed ${deck.length} cards · ${known} marked known, ${deck.length - known} still learning.`;
-    $("reviewUnknown").classList.remove("hidden");
+    $("revealRow").classList.add("hidden");
+    $("gradesRow").classList.add("hidden");
+    updateMeta();
+    const mode = $("studyMode").value;
+    if (empty) {
+      if (mode === "starred") {
+        $("doneSummary").textContent = "No starred cards yet — tap ★ on a card to add it.";
+      } else {
+        const nd = nextDueLabel();
+        $("doneSummary").textContent = nd
+          ? `Nothing due right now. Next review ${nd}.`
+          : "Nothing due right now.";
+      }
+    } else {
+      $("doneSummary").textContent =
+        `Reviewed ${deck.length} card${deck.length > 1 ? "s" : ""} · ${learnedCount()} of ${RADICALS.length} learned.`;
+    }
     $("studyDone").classList.remove("hidden");
-  }
-
-  function mark(status) {
-    const card = deck[idx];
-    if (!card) return;
-    entry(card.radical).status = status;
-    saveProgress();
-    advance();
   }
 
   $("flashcard").addEventListener("click", (ev) => {
     if (ev.target.closest("#starBtn") || ev.target.closest("#speakBtn")) return;
-    flip();
+    reveal();
   });
+  $("revealBtn").addEventListener("click", reveal);
+  document.querySelectorAll(".grade").forEach((b) =>
+    b.addEventListener("click", () => grade(b.dataset.grade)));
   $("starBtn").addEventListener("click", () => {
-    const card = deck[idx];
-    if (!card) return;
-    const e = entry(card.radical);
+    if (deck.length === 0) return;
+    const e = rec(deck[idx].radical);
     e.starred = !e.starred;
-    saveProgress();
+    save();
     $("starBtn").textContent = e.starred ? "★" : "☆";
   });
   $("speakBtn").addEventListener("click", () => {
-    const card = deck[idx];
-    if (card) speak(card.radical);
+    if (deck[idx]) speak(deck[idx].radical);
   });
-  $("nextCard").addEventListener("click", advance);
-  $("prevCard").addEventListener("click", () => { if (idx > 0) { idx--; renderCard(); } });
-  $("markKnown").addEventListener("click", () => mark("known"));
-  $("markLearning").addEventListener("click", () => mark("unknown"));
   $("restartStudy").addEventListener("click", buildDeck);
   $("restartStudy2").addEventListener("click", buildDeck);
-  $("reviewUnknown").addEventListener("click", () => {
-    $("studyFilter").value = "unknown";
-    buildDeck();
-  });
+  $("cramAll").addEventListener("click", () => { $("studyMode").value = "all"; buildDeck(); });
   $("studyDir").addEventListener("change", renderCard);
-  $("studyFilter").addEventListener("change", buildDeck);
+  $("studyMode").addEventListener("change", buildDeck);
   $("shuffleToggle").addEventListener("change", buildDeck);
 
   document.addEventListener("keydown", (ev) => {
     if (!$("view-study").classList.contains("active")) return;
     if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
-    switch (ev.key) {
-      case " ": case "Enter": ev.preventDefault(); flip(); break;
-      case "ArrowRight": advance(); break;
-      case "ArrowLeft": if (idx > 0) { idx--; renderCard(); } break;
-      case "k": case "K": mark("known"); break;
-      case "j": case "J": mark("unknown"); break;
-      case "s": case "S": $("starBtn").click(); break;
-    }
+    if (deck.length === 0) return;
+    if (ev.key === "s" || ev.key === "S") { $("starBtn").click(); return; }
+    if (ev.key === " " || ev.key === "Enter") { ev.preventDefault(); reveal(); return; }
+    if (!flipped) return;
+    const map = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
+    if (map[ev.key]) grade(map[ev.key]);
   });
 
   /* ================= QUIZ ================= */
@@ -223,7 +286,6 @@
       promptEl.classList.add("text");
     }
 
-    // build 4 options
     const distractors = shuffle(RADICALS.filter((c) => c.radical !== q.radical)).slice(0, 3);
     const options = shuffle([q, ...distractors]);
 
@@ -232,7 +294,7 @@
       const btn = document.createElement("button");
       btn.className = "quiz-opt" + (dir === "radical" ? "" : " zh");
       btn.textContent = dir === "radical" ? opt.meaning : opt.radical;
-      btn.addEventListener("click", () => answer(btn, opt, q, options));
+      btn.addEventListener("click", () => answer(btn, opt, q));
       optsEl.appendChild(btn);
     });
 
@@ -241,7 +303,7 @@
     $("quizProgress").style.width = (quiz.i / quiz.questions.length * 100) + "%";
   }
 
-  function answer(btn, chosen, correct, options) {
+  function answer(btn, chosen, correct) {
     const buttons = Array.from($("quizOptions").children);
     buttons.forEach((b) => (b.disabled = true));
     const correctText = quiz.dir === "radical" ? correct.meaning : correct.radical;
@@ -249,23 +311,18 @@
     if (chosen.radical === correct.radical) {
       btn.classList.add("correct");
       quiz.score++;
-      entry(correct.radical).status = "known";
+      gradeCard(correct.radical, "good");
     } else {
       btn.classList.add("wrong");
       quiz.mistakes.push(correct);
-      entry(correct.radical).status = "unknown";
+      gradeCard(correct.radical, "again");
       buttons.forEach((b) => { if (b.textContent === correctText) b.classList.add("correct"); });
     }
-    saveProgress();
     $("quizScore").textContent = "Score: " + quiz.score;
 
     setTimeout(() => {
-      if (quiz.i < quiz.questions.length - 1) {
-        quiz.i++;
-        renderQuestion();
-      } else {
-        finishQuiz();
-      }
+      if (quiz.i < quiz.questions.length - 1) { quiz.i++; renderQuestion(); }
+      else finishQuiz();
     }, 700);
   }
 
@@ -273,7 +330,7 @@
     $("quizActive").classList.add("hidden");
     const total = quiz.questions.length;
     const pct = Math.round(quiz.score / total * 100);
-    $("quizGrade").textContent = pct >= 90 ? "🏆 " + pct + "%" : pct >= 70 ? "👍 " + pct + "%" : "📚 " + pct + "%";
+    $("quizGrade").textContent = pct >= 90 ? "Excellent · " + pct + "%" : pct >= 70 ? "Nicely done · " + pct + "%" : "Keep studying · " + pct + "%";
     $("quizResultSummary").textContent = `You got ${quiz.score} of ${total} correct.`;
 
     const mEl = $("quizMistakes");
@@ -313,11 +370,12 @@
     );
     $("browseCount").textContent = filtered.length + " radicals";
     filtered.forEach((c) => {
-      const e = progress[c.radical];
+      const s = state[c.radical];
+      const learned = isLearned(c.radical);
       const cell = document.createElement("div");
-      cell.className = "cell" + (e?.status === "known" ? " known" : "");
+      cell.className = "cell" + (learned ? " known" : "");
       cell.innerHTML = `
-        <div class="badge">${e?.starred ? "★" : ""}${e?.status === "known" ? "✓" : ""}</div>
+        <div class="badge">${s && s.starred ? "★" : ""}${learned ? "✓" : ""}</div>
         <div class="zh">${c.radical}</div>
         <div class="py">${c.pinyin}</div>
         <div class="mn">${c.meaning}</div>`;
@@ -329,13 +387,26 @@
   }
   $("browseSearch").addEventListener("input", renderBrowse);
   $("resetProgress").addEventListener("click", () => {
-    if (confirm("Reset all progress, stars, and known marks?")) {
-      progress = {};
-      saveProgress();
+    if (confirm("Reset all scheduling, stars, and progress?")) {
+      state = {};
+      save();
       renderBrowse();
     }
   });
 
   /* ---------- Init ---------- */
-  buildDeck();
+  (async function init() {
+    try {
+      const m = await import("https://esm.sh/ts-fsrs@4");
+      createEmptyCard = m.createEmptyCard;
+      Rating = m.Rating;
+      State = m.State;
+      scheduler = m.fsrs(m.generatorParameters({ enable_fuzz: true, maximum_interval: 36500 }));
+      GRADE = { again: Rating.Again, hard: Rating.Hard, good: Rating.Good, easy: Rating.Easy };
+    } catch (e) {
+      console.error("Failed to load FSRS scheduler", e);
+      $("doneSummary").textContent = "Could not load the scheduler (offline?). Reload to retry.";
+    }
+    buildDeck();
+  })();
 })();

@@ -1,0 +1,2 @@
+{"seq":1,"id":"5d397d65","type":"steer","ts":"2026-06-01T15:57:11.127Z","event":{"type":"steer","id":"5d397d65","message":"too many gradients, too blocky with weird constrast, make it more cohesive and less ai slop","pageUrl":"http://localhost:3000/","token":"281f4d5b-6056-4208-b590-506a040b23ed"}}
+{"seq":2,"id":"5d397d65","type":"steer_done","ts":"2026-06-01T16:00:04.646Z","event":{"type":"steer_done","id":"5d397d65","sourceEventType":"steer","carbonize":false}}

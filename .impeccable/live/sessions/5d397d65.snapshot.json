@@ -1,0 +1,20 @@
+{
+  "id": "5d397d65",
+  "phase": "steer_done",
+  "pageUrl": "http://localhost:3000/",
+  "sourceFile": null,
+  "expectedVariants": 0,
+  "arrivedVariants": 0,
+  "visibleVariant": null,
+  "paramValues": {},
+  "pendingEventSeq": null,
+  "pendingEvent": null,
+  "deliveryLease": null,
+  "checkpointRevision": 0,
+  "activeOwner": null,
+  "sourceMarkers": {},
+  "fallbackMode": null,
+  "annotationArtifacts": [],
+  "diagnostics": [],
+  "updatedAt": "2026-06-01T16:00:04.646Z"
+}
