@@ -165,7 +165,16 @@
     }
     $("cardPinyin").textContent = card.pinyin;
     $("cardMeaning").textContent = card.meaning;
-    $("cardRadical").textContent = card.radical;
+    const showVariant = card.variant && card.variant !== card.radical;
+    $("variantBlock").classList.toggle("hidden", !showVariant);
+    $("cardVariant").textContent = showVariant ? card.variant : "";
+    if (card.example) {
+      $("cardExample").textContent = card.example.char;
+      $("cardExampleSub").textContent = `${card.example.pinyin} · ${card.example.meaning}`;
+    } else {
+      $("cardExample").textContent = "";
+      $("cardExampleSub").textContent = "";
+    }
     $("starBtn").textContent = e.starred ? "★" : "☆";
 
     $("cardCounter").textContent = (idx + 1) + " / " + deck.length;
@@ -409,11 +418,13 @@
       const learned = isLearned(c.radical);
       const cell = document.createElement("div");
       cell.className = "cell" + (learned ? " known" : "");
+      const showVar = c.variant && c.variant !== c.radical;
       cell.innerHTML = `
         <div class="badge">${s && s.starred ? "★" : ""}${learned ? "✓" : ""}</div>
-        <div class="zh">${c.radical}</div>
+        <div class="zh">${c.radical}${showVar ? `<span class="cell-variant">${c.variant}</span>` : ""}</div>
         <div class="py">${c.pinyin}</div>
-        <div class="mn">${c.meaning}</div>`;
+        <div class="mn">${c.meaning}</div>
+        <div class="cell-eg">${c.example.char} <span>${c.example.meaning}</span></div>`;
       cell.addEventListener("click", () => speak(c.radical));
       cell.style.cursor = "pointer";
       cell.title = "Click to hear pronunciation";
