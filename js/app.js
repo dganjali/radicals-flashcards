@@ -307,7 +307,9 @@
   function startQuiz() {
     const dir = $("quizDir").value;
     const len = parseInt($("quizLen").value, 10);
-    let pool = shuffle(RADICALS);
+    let pool = dir === "variant"
+      ? shuffle(RADICALS.filter((c) => c.variant && c.variant !== c.radical))
+      : shuffle(RADICALS);
     if (len > 0) pool = pool.slice(0, len);
     quiz = { questions: pool, i: 0, score: 0, mistakes: [], dir };
     $("quizSetup").classList.add("hidden");
@@ -322,22 +324,28 @@
     const promptEl = $("quizPrompt");
     const optsEl = $("quizOptions");
 
-    if (dir === "radical") {
-      promptEl.textContent = q.radical;
+    if (dir === "variant") {
+      promptEl.textContent = q.variant;
       promptEl.classList.remove("text");
-    } else {
+    } else if (dir === "meaning") {
       promptEl.textContent = q.meaning;
       promptEl.classList.add("text");
+    } else {
+      promptEl.textContent = q.radical;
+      promptEl.classList.remove("text");
     }
 
-    const distractors = shuffle(RADICALS.filter((c) => c.radical !== q.radical)).slice(0, 3);
+    // answer shown on the option buttons: radical for "meaning" mode, otherwise the meaning
+    const sameAnswer = (a, b) => (dir === "meaning" ? a.radical === b.radical : a.meaning === b.meaning);
+    const distractorPool = RADICALS.filter((c) => c.radical !== q.radical && !sameAnswer(c, q));
+    const distractors = shuffle(distractorPool).slice(0, 3);
     const options = shuffle([q, ...distractors]);
 
     optsEl.innerHTML = "";
     options.forEach((opt) => {
       const btn = document.createElement("button");
-      btn.className = "quiz-opt" + (dir === "radical" ? "" : " zh");
-      btn.textContent = dir === "radical" ? opt.meaning : opt.radical;
+      btn.className = "quiz-opt" + (dir === "meaning" ? " zh" : "");
+      btn.textContent = dir === "meaning" ? opt.radical : opt.meaning;
       btn.addEventListener("click", () => answer(btn, opt, q));
       optsEl.appendChild(btn);
     });
@@ -350,7 +358,7 @@
   function answer(btn, chosen, correct) {
     const buttons = Array.from($("quizOptions").children);
     buttons.forEach((b) => (b.disabled = true));
-    const correctText = quiz.dir === "radical" ? correct.meaning : correct.radical;
+    const correctText = quiz.dir === "meaning" ? correct.radical : correct.meaning;
 
     if (chosen.radical === correct.radical) {
       btn.classList.add("correct");
